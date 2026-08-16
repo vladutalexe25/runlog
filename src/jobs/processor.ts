@@ -1,5 +1,6 @@
 import { executeWorkflow } from "../engine/engine.js";
 import { defaultExecutors } from "../engine/executors.js";
+import type { RunResult, WorkflowDefinition } from "../engine/types.js";
 import {
   claimNextPendingRun,
   getWorkflowWithGraph,
@@ -9,6 +10,25 @@ import {
 } from "../db/repository.js";
 
 const executors = defaultExecutors();
+
+/**
+ * The workflow's "answer": outputs of nodes nothing else depends on. Not
+ * every succeeded node — just the ones a human would call the end result.
+ */
+function terminalNodeOutputs(definition: WorkflowDefinition, result: RunResult): Record<string, unknown> {
+  const nodesWithOutgoingEdge = new Set(definition.edges.map((e) => e.source));
+  const terminalNodeIds = new Set(
+    definition.nodes.filter((n) => !nodesWithOutgoingEdge.has(n.id)).map((n) => n.id),
+  );
+
+  const outputs: Record<string, unknown> = {};
+  for (const exec of result.nodeExecutions) {
+    if (terminalNodeIds.has(exec.nodeId) && exec.status === "succeeded") {
+      outputs[exec.nodeId] = exec.output;
+    }
+  }
+  return outputs;
+}
 
 /**
  * Claims and runs at most one pending run. Returns whether it did anything,
@@ -31,10 +51,20 @@ export async function processNextRun(): Promise<boolean> {
     const result = await executeWorkflow(definition, run.triggerPayload, executors);
     await recordRunResult(run.id, result);
 
-    console.log(`[run ${run.id}] finished: ${result.status}`);
+    const durationMs = result.finishedAt.getTime() - result.startedAt.getTime();
+    if (result.status === "succeeded") {
+      console.log(
+        `[run ${run.id}] succeeded in ${durationMs}ms — result:`,
+        JSON.stringify(terminalNodeOutputs(definition, result)),
+      );
+    } else {
+      const failedNodes = result.nodeExecutions.filter((e) => e.status === "failed").map((e) => e.nodeId);
+      console.error(`[run ${run.id}] failed in ${durationMs}ms — ${result.error} (node(s): ${failedNodes.join(", ")})`);
+    }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     console.error(`[run ${run.id}] processor crashed: ${message}`);
+    if (err instanceof Error && err.stack) console.error(err.stack);
     await markRunFailed(run.id, `processor error: ${message}`);
   }
 

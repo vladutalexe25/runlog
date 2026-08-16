@@ -1,6 +1,17 @@
 import { createApp } from "./app.js";
 import { startJobLoop } from "../jobs/processor.js";
 
+// On Windows, Node's stdout/stderr can be non-blocking when piped to a file
+// or another process (not a real console) — sparse writes from a
+// long-running process (exactly what this is: infrequent request/job logs)
+// can sit in the OS pipe buffer indefinitely instead of flushing. Forcing
+// blocking mode is the standard workaround; it's a no-op on platforms/
+// destinations where it isn't needed.
+for (const stream of [process.stdout, process.stderr]) {
+  const handle = (stream as unknown as { _handle?: { setBlocking?: (b: boolean) => void } })._handle;
+  handle?.setBlocking?.(true);
+}
+
 // 3000 is taken by something else on dev machines often enough that it's
 // not worth the friction; pick a less contested default.
 const port = Number(process.env.PORT ?? 4000);
