@@ -2,7 +2,7 @@
 
 A self-hostable tool that runs small automations — triggered by a webhook or a
 schedule — with a visual editor and a run history that tells you exactly what
-happened. See [`project.MD`](../project.MD) for the full scope and phase plan.
+happened.
 
 ## Status: Phase 1 — data model and execution engine
 
