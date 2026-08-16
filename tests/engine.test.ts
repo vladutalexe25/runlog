@@ -308,7 +308,7 @@ describe("executeWorkflow — full integration", () => {
       workflow,
       { webhook: true },
       {
-        http_request: createHttpRequestExecutor(fetchImpl as unknown as typeof fetch),
+        http_request: createHttpRequestExecutor(fetchImpl as unknown as typeof fetch, ["example.com"]),
         transform: transformExecutor,
         condition: conditionExecutor,
       },

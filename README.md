@@ -94,6 +94,7 @@ navigation or refresh once the frontend existed.
 | `GET /api/workflows/:id/runs` | Runs for a workflow, newest first. |
 | `GET /api/runs/:id` | A run with all of its `node_executions` — input, output, error, duration per node. |
 | `DELETE /api/workflows/:id` | Deletes a workflow. Cascades to its nodes, edges, runs, and node_executions. `204` on success. |
+| `DELETE /api/workflows/:id/runs` | Clears run history — `succeeded`/`failed` runs only, `pending`/`running` are left alone. Returns `{ deleted: <count> }`. |
 | `POST /webhooks/:workflowId` | The webhook trigger. Same enqueue path as manual trigger, `triggerType: "webhook"`. |
 
 ### How a run actually executes
@@ -155,6 +156,16 @@ against `{ input, context }` — fine for a trusted, single-user tool, and
 flagged here because it would not be fine for anything multi-tenant.
 `llm` only has its provider interface defined (`LLMProvider`) — Ollama and
 hosted-API implementations are Phase 6 work.
+
+`http_request` can only call domains listed in the `ALLOWED_HTTP_DOMAINS`
+env var (comma-separated, `*.example.com` wildcards supported) — **empty
+or unset blocks every URL**, it does not default to "allow everything."
+This is checked twice: when a workflow is saved (`POST`/`PUT
+/api/workflows`, so a disallowed URL is a clear `400` at save time, not a
+mysterious failure at run time) and again inside the executor itself
+(the real enforcement point — the save-time check is a convenience, not
+the security boundary). See "Protecting the http_request node" in
+`DECISIONS.md` for why an allowlist and not IP-range blocking.
 
 ### The editor and run history UI
 

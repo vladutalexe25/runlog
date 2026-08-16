@@ -139,6 +139,27 @@ export default function WorkflowDetailPage() {
     }
   };
 
+  const isFinished = (r: Run) => r.status === "succeeded" || r.status === "failed";
+
+  const handleClearHistory = async () => {
+    if (!id) return;
+    const clearableCount = runs.filter(isFinished).length;
+    if (clearableCount === 0) return;
+    if (!confirm(`Clear ${clearableCount} finished run(s) from history? This can't be undone.`)) return;
+    try {
+      await api.clearRunHistory(id);
+      const selectedRunCleared = runs.find((r) => r.id === selectedRunId && isFinished(r));
+      setRuns((rs) => rs.filter((r) => !isFinished(r)));
+      if (selectedRunCleared) {
+        setSelectedRunId(null);
+        setExecutions(null);
+        setSelectedNodeId(null);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
   const selectedExecution = useMemo(
     () => executions?.find((e) => e.nodeId === selectedNodeId) ?? null,
     [executions, selectedNodeId],
@@ -150,7 +171,7 @@ export default function WorkflowDetailPage() {
   if (!graph) return <div className="page">Loading…</div>;
 
   return (
-    <div className="page" style={{ maxWidth: 1300 }}>
+    <div className="page detail-page" style={{ maxWidth: 1300 }}>
       <div className="page-header">
         <div>
           <h1>{graph.workflow.name}</h1>
@@ -188,7 +209,7 @@ export default function WorkflowDetailPage() {
         </div>
 
         <div className="detail-sidebar">
-          <div className="card" style={{ padding: 12 }}>
+          <div className="card trigger-card" style={{ padding: 12 }}>
             <div className="section-title">Trigger</div>
             <div className="field">
               <label>Webhook URL</label>
@@ -203,22 +224,34 @@ export default function WorkflowDetailPage() {
             </button>
           </div>
 
-          <div className="card" style={{ padding: 12 }}>
-            <div className="section-title">Run history</div>
-            {runs.length === 0 && <p style={{ fontSize: 12, color: "var(--text-dim)" }}>No runs yet.</p>}
-            {runs.map((r) => (
-              <div
-                key={r.id}
-                className={`run-row${r.id === selectedRunId ? " selected" : ""}`}
-                onClick={() => selectRun(r.id)}
+          <div className="card run-history-card" style={{ padding: 12 }}>
+            <div className="run-history-header">
+              <div className="section-title">Run history</div>
+              <button
+                className="btn btn-danger"
+                style={{ padding: "3px 8px", fontSize: 11 }}
+                onClick={handleClearHistory}
+                disabled={!runs.some(isFinished)}
               >
-                <div>
-                  {statusBadge(r.status)}
-                  <div className="run-meta">{r.triggerType}</div>
+                Clear history
+              </button>
+            </div>
+            <div className="run-history-list">
+              {runs.length === 0 && <p style={{ fontSize: 12, color: "var(--text-dim)" }}>No runs yet.</p>}
+              {runs.map((r) => (
+                <div
+                  key={r.id}
+                  className={`run-row${r.id === selectedRunId ? " selected" : ""}`}
+                  onClick={() => selectRun(r.id)}
+                >
+                  <div>
+                    {statusBadge(r.status)}
+                    <div className="run-meta">{r.triggerType}</div>
+                  </div>
+                  <div className="run-meta">{new Date(r.createdAt).toLocaleTimeString()}</div>
                 </div>
-                <div className="run-meta">{new Date(r.createdAt).toLocaleTimeString()}</div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
 
           {selectedExecution && (

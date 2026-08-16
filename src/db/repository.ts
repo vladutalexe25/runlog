@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { db } from "./client.js";
 import { edges, nodeExecutions, nodes, runs, workflows } from "./schema.js";
 import type { NodeExecutionResult, RunResult, TriggerPayload, WorkflowDefinition } from "../engine/types.js";
@@ -189,6 +189,19 @@ export async function getRunWithExecutions(runId: string) {
 
 export async function listRunsForWorkflow(workflowId: string) {
   return db.select().from(runs).where(eq(runs.workflowId, workflowId)).orderBy(desc(runs.createdAt));
+}
+
+/**
+ * Deletes finished run history (node_executions cascade via runs.id).
+ * Deliberately leaves pending/running runs alone — clearing history is a
+ * cleanup action for past runs, not a way to cancel one in flight.
+ */
+export async function clearRunHistory(workflowId: string): Promise<number> {
+  const deleted = await db
+    .delete(runs)
+    .where(and(eq(runs.workflowId, workflowId), inArray(runs.status, ["succeeded", "failed"])))
+    .returning({ id: runs.id });
+  return deleted.length;
 }
 
 /**

@@ -1,6 +1,8 @@
 import { Router } from "express";
 import { NODE_TYPES } from "../../engine/types.js";
+import { checkUrlAllowed, parseAllowlist } from "../../engine/urlAllowlist.js";
 import {
+  clearRunHistory,
   createWorkflow,
   deleteWorkflow,
   enqueueRun,
@@ -28,6 +30,11 @@ function validateNodes(input: unknown): { errors: string[]; nodes: CreateWorkflo
       errors.push(`nodes[${i}].type must be one of ${NODE_TYPES.join(", ")}`);
     }
     if (n.config !== undefined && typeof n.config !== "object") errors.push(`nodes[${i}].config must be an object`);
+
+    if (n.type === "http_request" && typeof n.config?.url === "string") {
+      const allowlistError = checkUrlAllowed(n.config.url, parseAllowlist(process.env.ALLOWED_HTTP_DOMAINS));
+      if (allowlistError) errors.push(`nodes[${i}].config.url: ${allowlistError}`);
+    }
   }
 
   return { errors, nodes: nodes as CreateWorkflowNodeInput[] };
@@ -122,4 +129,12 @@ workflowsRouter.delete("/workflows/:id", async (req, res) => {
   const deleted = await deleteWorkflow(req.params.id);
   if (!deleted) return res.status(404).json({ error: "workflow not found" });
   res.status(204).send();
+});
+
+workflowsRouter.delete("/workflows/:id/runs", async (req, res) => {
+  const graph = await getWorkflowWithGraph(req.params.id);
+  if (!graph) return res.status(404).json({ error: "workflow not found" });
+
+  const count = await clearRunHistory(req.params.id);
+  res.json({ deleted: count });
 });

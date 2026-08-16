@@ -1,4 +1,5 @@
 import type { NodeExecutor, NodeExecutorArgs } from "./types.js";
+import { checkUrlAllowed, parseAllowlist } from "./urlAllowlist.js";
 
 /**
  * Built-in executors for the 5 supported node types. Each is a factory so
@@ -8,11 +9,15 @@ import type { NodeExecutor, NodeExecutorArgs } from "./types.js";
 
 type FetchLike = typeof fetch;
 
-export function createHttpRequestExecutor(fetchImpl: FetchLike = fetch): NodeExecutor {
+export function createHttpRequestExecutor(fetchImpl: FetchLike = fetch, allowedDomains: string[] = []): NodeExecutor {
   return async ({ config }: NodeExecutorArgs) => {
     const url = config.url;
     if (typeof url !== "string" || url.length === 0) {
       throw new Error("http_request node requires config.url");
+    }
+    const allowlistError = checkUrlAllowed(url, allowedDomains);
+    if (allowlistError) {
+      throw new Error(`http_request blocked: ${allowlistError}`);
     }
     const method = typeof config.method === "string" ? config.method : "GET";
     const headers = (config.headers as Record<string, string> | undefined) ?? undefined;
@@ -94,7 +99,7 @@ export function defaultExecutors(): {
   delay: NodeExecutor;
 } {
   return {
-    http_request: createHttpRequestExecutor(),
+    http_request: createHttpRequestExecutor(fetch, parseAllowlist(process.env.ALLOWED_HTTP_DOMAINS)),
     transform: transformExecutor,
     condition: conditionExecutor,
     delay: createDelayExecutor(),

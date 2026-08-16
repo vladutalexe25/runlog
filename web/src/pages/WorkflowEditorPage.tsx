@@ -301,8 +301,13 @@ function NodeConfigFields({
             type="text"
             value={(config.url as string) ?? ""}
             onChange={(e) => onChange({ url: e.target.value })}
-            placeholder="https://example.com/api"
+            placeholder="https://jsonplaceholder.typicode.com/todos/1"
           />
+          <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 4 }}>
+            Only <code style={{ fontFamily: "inherit" }}>jsonplaceholder.typicode.com</code> is
+            allowed right now — any other domain fails to save. Ask whoever runs this
+            deployment to add more via <code style={{ fontFamily: "inherit" }}>ALLOWED_HTTP_DOMAINS</code>.
+          </div>
         </div>
         <div className="field">
           <label>Method</label>

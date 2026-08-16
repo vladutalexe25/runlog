@@ -83,7 +83,7 @@ describe("createHttpRequestExecutor", () => {
     const fetchImpl = vi.fn().mockResolvedValue(
       new Response(JSON.stringify({ ok: true }), { status: 200 }),
     );
-    const executor = createHttpRequestExecutor(fetchImpl as unknown as typeof fetch);
+    const executor = createHttpRequestExecutor(fetchImpl as unknown as typeof fetch, ["example.com"]);
     const output = await executor({ config: { url: "https://example.com" }, input: null, context: {} });
     expect(output).toEqual({ status: 200, body: { ok: true } });
     expect(fetchImpl).toHaveBeenCalledWith("https://example.com", expect.objectContaining({ method: "GET" }));
@@ -91,15 +91,45 @@ describe("createHttpRequestExecutor", () => {
 
   it("throws when the response status is not ok", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(new Response("nope", { status: 500 }));
-    const executor = createHttpRequestExecutor(fetchImpl as unknown as typeof fetch);
+    const executor = createHttpRequestExecutor(fetchImpl as unknown as typeof fetch, ["example.com"]);
     await expect(
       executor({ config: { url: "https://example.com" }, input: null, context: {} }),
     ).rejects.toThrow(/status 500/);
   });
 
   it("throws a descriptive error when config.url is missing", async () => {
-    const executor = createHttpRequestExecutor(vi.fn() as unknown as typeof fetch);
+    const executor = createHttpRequestExecutor(vi.fn() as unknown as typeof fetch, ["example.com"]);
     await expect(executor({ config: {}, input: null, context: {} })).rejects.toThrow(/config.url/);
+  });
+
+  it("blocks a URL whose host is not in the allowlist, without calling fetch", async () => {
+    const fetchImpl = vi.fn();
+    const executor = createHttpRequestExecutor(fetchImpl as unknown as typeof fetch, ["example.com"]);
+    await expect(
+      executor({ config: { url: "https://evil.example.com.attacker.net" }, input: null, context: {} }),
+    ).rejects.toThrow(/blocked/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("blocks every URL when the allowlist is empty (fails closed)", async () => {
+    const executor = createHttpRequestExecutor(vi.fn() as unknown as typeof fetch, []);
+    await expect(
+      executor({ config: { url: "https://example.com" }, input: null, context: {} }),
+    ).rejects.toThrow(/no domains are allowlisted/);
+  });
+
+  it("blocks a non-http(s) scheme even if the host would otherwise match", async () => {
+    const executor = createHttpRequestExecutor(vi.fn() as unknown as typeof fetch, ["*.example.com", "example.com"]);
+    await expect(
+      executor({ config: { url: "file:///etc/passwd" }, input: null, context: {} }),
+    ).rejects.toThrow(/scheme/);
+  });
+
+  it("allows a host matching a wildcard allowlist entry", async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(new Response("{}", { status: 200 }));
+    const executor = createHttpRequestExecutor(fetchImpl as unknown as typeof fetch, ["*.example.com"]);
+    await executor({ config: { url: "https://api.example.com/x" }, input: null, context: {} });
+    expect(fetchImpl).toHaveBeenCalled();
   });
 });
 

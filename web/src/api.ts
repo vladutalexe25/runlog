@@ -33,6 +33,8 @@ export const api = {
   listRuns: (workflowId: string) => request<Run[]>(`/api/workflows/${workflowId}/runs`),
   getRun: (runId: string) => request<RunDetail>(`/api/runs/${runId}`),
   deleteWorkflow: (id: string) => request<void>(`/api/workflows/${id}`, { method: "DELETE" }),
+  clearRunHistory: (workflowId: string) =>
+    request<{ deleted: number }>(`/api/workflows/${workflowId}/runs`, { method: "DELETE" }),
 };
 
 export function edgesToApiShape(edges: WorkflowEdge[]) {

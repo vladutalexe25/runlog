@@ -22,14 +22,27 @@
   box-sizing: border-box;
 }
 
+html,
+body {
+  height: 100%;
+}
+
 body {
   margin: 0;
   background: var(--bg);
   color: var(--text);
 }
 
+#root {
+  height: 100%;
+}
+
+/* `height: 100%` (not `min-height`) is what makes this a real ceiling —
+   without it, a `flex: 1; min-height: 0;` chain further down has nothing
+   to actually constrain against, so content just grows the whole page
+   instead of scrolling inside a fixed-height panel. */
 .app-shell {
-  min-height: 100vh;
+  height: 100vh;
   display: flex;
   flex-direction: column;
 }
@@ -352,11 +365,28 @@ body {
 
 /* --- Detail page --- */
 
+/* Fills exactly what's left below the app header, instead of guessing its
+   height with `calc(100vh - Npx)` — so nothing here ever needs the outer
+   page to scroll; only specific panels (run history, node inspector) do. */
+.detail-page {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.detail-page > .page-header,
+.detail-page > .error-banner {
+  flex-shrink: 0;
+}
+
 .detail-layout {
   display: grid;
   grid-template-columns: 1fr 340px;
   gap: 16px;
-  height: calc(100vh - 53px - 48px);
+  flex: 1;
+  min-height: 0;
 }
 
 .detail-canvas {
@@ -364,12 +394,39 @@ body {
   border-radius: 8px;
   background: var(--surface);
   position: relative;
+  min-height: 0;
 }
 
 .detail-sidebar {
   display: flex;
   flex-direction: column;
   gap: 12px;
+  min-height: 0;
+}
+
+.trigger-card {
+  flex-shrink: 0;
+}
+
+.run-history-card {
+  flex: 1;
+  min-height: 120px;
+  display: flex;
+  flex-direction: column;
+}
+
+.run-history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.run-history-header .section-title {
+  margin: 0;
+}
+
+.run-history-list {
+  flex: 1;
   min-height: 0;
   overflow-y: auto;
 }
@@ -405,6 +462,9 @@ body {
   border: 1px solid var(--border);
   border-radius: 6px;
   font-size: 12px;
+  flex-shrink: 0;
+  max-height: 40%;
+  overflow-y: auto;
 }
 
 .node-inspector pre {
