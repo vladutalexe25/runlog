@@ -4,31 +4,44 @@ A self-hostable tool that runs small automations — triggered by a webhook or a
 schedule — with a visual editor and a run history that tells you exactly what
 happened.
 
-## Status: Phase 2 — REST API and persistence
+## Status: Phase 3 — editor and run history UI
 
-Phase 1 (engine + schema) is done and untouched by Phase 2. Phase 2 wires
-the engine to a real Postgres database (Neon) behind a REST API: workflows
-are persisted, triggering a workflow enqueues a `run`, and a background job
-loop claims and executes pending runs, recording a complete per-node result.
+Phases 1 (engine + schema) and 2 (REST API + persistence) are done and
+untouched by Phase 3. Phase 3 adds a React + TypeScript frontend (`web/`)
+with a React Flow canvas: build a workflow visually, save it, trigger it,
+and watch a run complete with per-node status colored directly on the
+canvas — the failure case is the point (see below).
 
 ```
-src/
+src/                   Backend — unchanged shape from Phase 2, routes now under /api
   db/
     schema.ts        Drizzle schema: workflows, nodes, edges, runs, node_executions
     client.ts         Postgres connection (drizzle-orm/postgres-js), reads DATABASE_URL
-    repository.ts      All queries: create/list/get workflows, enqueue/claim/record runs
+    repository.ts      All queries, incl. updateWorkflow (full replace) added in Phase 3
   engine/              Unchanged from Phase 1 — see below
   api/
-    app.ts             Express app: JSON body parsing, routes, error handler
+    app.ts             Express app: cors, JSON body parsing, routes, static frontend + SPA fallback, error handler
     server.ts           Entrypoint: starts the HTTP server and the job loop
     routes/
-      workflows.ts       POST/GET /workflows, POST /workflows/:id/trigger, GET .../runs
-      runs.ts             GET /runs/:id
-      webhooks.ts         POST /webhooks/:workflowId
+      workflows.ts       /api/workflows: create/list/get/update, trigger, list runs
+      runs.ts             /api/runs/:id
+      webhooks.ts         /webhooks/:workflowId — unprefixed, handed to external services
   jobs/
     processor.ts        claimNextPendingRun + executeWorkflow + persist, on a poll loop
 tests/
   plan.test.ts / engine.test.ts / executors.test.ts   (Phase 1, DB-free)
+
+web/                   Frontend — React + TypeScript + Vite + React Flow
+  src/
+    api.ts               Typed fetch wrapper for the backend's /api/* routes
+    types.ts              Shared shapes matching the backend's JSON responses
+    App.tsx                Routes: /, /workflows/new, /workflows/:id/edit, /workflows/:id
+    components/FlowNode.tsx  Custom React Flow node — renders type/name/run-status color
+    pages/
+      WorkflowListPage.tsx    Lists workflows, links to detail/new
+      WorkflowEditorPage.tsx  Canvas: add/configure/connect nodes, save (create or update)
+      WorkflowDetailPage.tsx  Read-only canvas colored by a selected run, run history,
+                                per-node input/output/error inspector, "Run now"
 ```
 
 ### Running the tests
@@ -39,23 +52,48 @@ npm test        # 42 Vitest tests, no database required
 npm run typecheck
 ```
 
-### Running the API
+### Running in development
 
 ```
-npm run db:push   # apply src/db/schema.ts to DATABASE_URL (see .env.example)
-npm run dev        # starts the REST API + job loop on $PORT (default 4000)
+npm run db:push          # apply src/db/schema.ts to DATABASE_URL (see .env.example)
+npm run dev               # backend: REST API + job loop on $PORT (default 4000)
+
+cd web && npm install
+npm run dev                # frontend: Vite dev server on :5173, proxies /api, /webhooks,
+                            # /health to :4000 (see web/vite.config.ts)
 ```
+
+Open `http://localhost:5173`.
+
+### Running as it would in production
+
+```
+npm run build   # tsc for the backend, then builds web/ too (root package.json)
+npm start        # one process, one port: serves the API and the built frontend
+```
+
+Open `http://localhost:$PORT` (default 4000) — no separate frontend origin,
+no `VITE_API_URL` to set. See "Deploying" below.
 
 ### The REST API
 
+All routes are under `/api` **except** `/webhooks/:id` (handed to external
+services, kept short) and `/health`. The prefix exists specifically so these
+don't collide with the frontend's own `/workflows/:id`-shaped routes — a
+plain `/workflows/:id` was ambiguous between "give me the JSON" (backend)
+and "render the detail page" (frontend SPA route), which broke on any hard
+navigation or refresh once the frontend existed.
+
 | | |
 |---|---|
-| `POST /workflows` | Create a workflow: `{ name, description?, nodes: [{ id, type, name, config }], edges: [{ id, source, target, branch? }] }`. Node/edge ids are caller-supplied strings, unique per workflow — there's no editor yet to generate them. |
-| `GET /workflows` | List workflows. |
-| `GET /workflows/:id` | A workflow with its nodes and edges. |
-| `POST /workflows/:id/trigger` | Manual "Run now" — body becomes the trigger payload. Enqueues a `run`, returns `202`. |
-| `GET /workflows/:id/runs` | Runs for a workflow, newest first. |
-| `GET /runs/:id` | A run with all of its `node_executions` — input, output, error, duration per node. |
+| `POST /api/workflows` | Create a workflow: `{ name, description?, nodes: [{ id, type, name, config }], edges: [{ id, source, target, branch? }] }`. Node/edge ids are caller-supplied strings, unique per workflow. |
+| `PUT /api/workflows/:id` | Full replace — same body shape as create. What the editor's "Save" calls when editing an existing workflow. |
+| `GET /api/workflows` | List workflows. |
+| `GET /api/workflows/:id` | A workflow with its nodes and edges. |
+| `POST /api/workflows/:id/trigger` | Manual "Run now" — body becomes the trigger payload. Enqueues a `run`, returns `202`. |
+| `GET /api/workflows/:id/runs` | Runs for a workflow, newest first. |
+| `GET /api/runs/:id` | A run with all of its `node_executions` — input, output, error, duration per node. |
+| `DELETE /api/workflows/:id` | Deletes a workflow. Cascades to its nodes, edges, runs, and node_executions. `204` on success. |
 | `POST /webhooks/:workflowId` | The webhook trigger. Same enqueue path as manual trigger, `triggerType: "webhook"`. |
 
 ### How a run actually executes
@@ -118,10 +156,44 @@ flagged here because it would not be fine for anything multi-tenant.
 `llm` only has its provider interface defined (`LLMProvider`) — Ollama and
 hosted-API implementations are Phase 6 work.
 
+### The editor and run history UI
+
+The canvas (`WorkflowEditorPage`) lets you add any of the 5 node types from
+a toolbar, drag them, connect them (a `condition` node exposes two source
+handles, `true`/`false`, so branching is drawn directly on the canvas), and
+configure each node's type-specific fields in a side panel. Node ids are
+directly editable text — they're what expressions reference as
+`context.<id>`, so the id is part of the authoring surface, not a hidden
+implementation detail.
+
+The detail page (`WorkflowDetailPage`) is where the failure-legibility
+acceptance criterion lives: pick a run from the history list and every node
+on the (read-only) canvas is colored by that run's outcome — green
+succeeded, red failed, grey skipped, unstyled if the run never reached it.
+Click any node to see its exact input, output, error, attempt count, and
+duration. A run in flight is polled every 1.2s so triggering "Run now" and
+watching the canvas light up doesn't need a manual refresh.
+
+### Deploying
+
+`render.yaml` is checked in — Render's Blueprint flow (New → Blueprint,
+select this repo) reads it and configures the build/start commands and a
+`DATABASE_URL` prompt automatically. For an existing service instead:
+
+- **Build command:** `npm install && npm run build`
+- **Start command:** `npm start`
+- **Env var:** `DATABASE_URL` — the Neon connection string, same as local `.env`
+
+One service, one URL — the frontend is static files served by the same
+Express process (see "Frontend deployed as static files..." in
+`DECISIONS.md` for why), so there's no separate frontend deploy or
+`VITE_API_URL` to configure.
+
 ### Deliberately not built yet
 
-- No GraphQL — Phase 2 ships REST; GraphQL is layered on top of the same
-  handlers once Phase 3's UI needs nested queries (see `project.MD`).
-- No canvas/editor UI, no run history UI — Phase 3.
+- No GraphQL — Phase 2 shipped REST; GraphQL is layered on top of the same
+  `/api` handlers once it's needed (see `project.MD`).
 - No structured logging, no Sentry, no CI — Phase 4.
 - No real LLM provider implementations — Phase 6.
+- No workflow versioning — `PUT /api/workflows/:id` is a full replace, no
+  history of prior versions.

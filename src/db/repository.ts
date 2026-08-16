@@ -65,8 +65,65 @@ export async function createWorkflow(input: CreateWorkflowInput) {
   });
 }
 
+/**
+ * Full replace: drops the workflow's current nodes (edges cascade with
+ * them) and re-inserts whatever the editor sent. Simple and correct for a
+ * single-user tool with no concurrent editors and no versioning — see
+ * DECISIONS.md.
+ */
+export async function updateWorkflow(workflowId: string, input: CreateWorkflowInput) {
+  return db.transaction(async (tx) => {
+    const [workflow] = await tx
+      .update(workflows)
+      .set({ name: input.name, description: input.description, updatedAt: new Date() })
+      .where(eq(workflows.id, workflowId))
+      .returning();
+    if (!workflow) return null;
+
+    await tx.delete(nodes).where(eq(nodes.workflowId, workflowId));
+
+    if (input.nodes.length > 0) {
+      await tx.insert(nodes).values(
+        input.nodes.map((n) => ({
+          id: n.id,
+          workflowId,
+          type: n.type,
+          name: n.name,
+          config: n.config,
+          positionX: n.positionX ?? 0,
+          positionY: n.positionY ?? 0,
+        })),
+      );
+    }
+
+    if (input.edges.length > 0) {
+      await tx.insert(edges).values(
+        input.edges.map((e) => ({
+          id: e.id,
+          workflowId,
+          sourceNodeId: e.source,
+          targetNodeId: e.target,
+          branch: e.branch ?? null,
+        })),
+      );
+    }
+
+    return workflow;
+  });
+}
+
 export async function listWorkflows() {
   return db.select().from(workflows).orderBy(desc(workflows.createdAt));
+}
+
+/**
+ * Deletes a workflow and everything under it — nodes, edges, runs, and
+ * their node_executions all cascade from workflows.id / runs.id foreign
+ * keys, so this is the one statement that needs to run.
+ */
+export async function deleteWorkflow(workflowId: string): Promise<boolean> {
+  const deleted = await db.delete(workflows).where(eq(workflows.id, workflowId)).returning({ id: workflows.id });
+  return deleted.length > 0;
 }
 
 export async function getWorkflowWithGraph(workflowId: string) {

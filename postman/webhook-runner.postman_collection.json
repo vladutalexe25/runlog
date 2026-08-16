@@ -34,7 +34,7 @@
       "request": {
         "method": "POST",
         "header": [{ "key": "Content-Type", "value": "application/json" }],
-        "url": "{{baseUrl}}/workflows",
+        "url": "{{baseUrl}}/api/workflows",
         "body": {
           "mode": "raw",
           "raw": "{\n  \"name\": \"score classifier\",\n  \"description\": \"classifies a score as high or low\",\n  \"nodes\": [\n    { \"id\": \"extract\", \"type\": \"transform\", \"name\": \"Extract\", \"config\": { \"expression\": \"input.score\" } },\n    { \"id\": \"cond\", \"type\": \"condition\", \"name\": \"High?\", \"config\": { \"expression\": \"context.extract >= 0.5\" } },\n    { \"id\": \"high\", \"type\": \"transform\", \"name\": \"High\", \"config\": { \"expression\": \"'high'\" } },\n    { \"id\": \"low\", \"type\": \"transform\", \"name\": \"Low\", \"config\": { \"expression\": \"'low'\" } }\n  ],\n  \"edges\": [\n    { \"id\": \"e1\", \"source\": \"extract\", \"target\": \"cond\" },\n    { \"id\": \"e2\", \"source\": \"cond\", \"target\": \"high\", \"branch\": \"true\" },\n    { \"id\": \"e3\", \"source\": \"cond\", \"target\": \"low\", \"branch\": \"false\" }\n  ]\n}"
@@ -45,14 +45,14 @@
       "name": "3. List workflows",
       "request": {
         "method": "GET",
-        "url": "{{baseUrl}}/workflows"
+        "url": "{{baseUrl}}/api/workflows"
       }
     },
     {
       "name": "4. Get workflow",
       "request": {
         "method": "GET",
-        "url": "{{baseUrl}}/workflows/{{workflowId}}"
+        "url": "{{baseUrl}}/api/workflows/{{workflowId}}"
       }
     },
     {
@@ -83,14 +83,14 @@
       "name": "6. Get run result (wait ~1-2s after step 5 first)",
       "request": {
         "method": "GET",
-        "url": "{{baseUrl}}/runs/{{runId}}"
+        "url": "{{baseUrl}}/api/runs/{{runId}}"
       }
     },
     {
       "name": "7. List runs for workflow",
       "request": {
         "method": "GET",
-        "url": "{{baseUrl}}/workflows/{{workflowId}}/runs"
+        "url": "{{baseUrl}}/api/workflows/{{workflowId}}/runs"
       }
     }
   ]

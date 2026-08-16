@@ -2,11 +2,14 @@ import { Router } from "express";
 import { NODE_TYPES } from "../../engine/types.js";
 import {
   createWorkflow,
+  deleteWorkflow,
   enqueueRun,
   getWorkflowWithGraph,
   listRunsForWorkflow,
   listWorkflows,
+  updateWorkflow,
   type CreateWorkflowEdgeInput,
+  type CreateWorkflowInput,
   type CreateWorkflowNodeInput,
 } from "../../db/repository.js";
 
@@ -55,22 +58,39 @@ function validateEdges(
   return { errors, edges: edges as CreateWorkflowEdgeInput[] };
 }
 
-workflowsRouter.post("/workflows", async (req, res) => {
-  const { name, description, nodes: nodesInput, edges: edgesInput } = req.body ?? {};
+function validateWorkflowBody(body: unknown): { errors: string[]; input?: CreateWorkflowInput } {
+  const { name, description, nodes: nodesInput, edges: edgesInput } = (body ?? {}) as Record<string, unknown>;
 
-  if (typeof name !== "string" || name.length === 0) {
-    return res.status(400).json({ error: "name is required" });
-  }
+  const errors: string[] = [];
+  if (typeof name !== "string" || name.length === 0) errors.push("name is required");
 
   const { errors: nodeErrors, nodes } = validateNodes(nodesInput ?? []);
   const nodeIds = new Set(nodes.map((n) => n.id));
   const { errors: edgeErrors, edges } = validateEdges(edgesInput ?? [], nodeIds);
+  errors.push(...nodeErrors, ...edgeErrors);
 
-  const errors = [...nodeErrors, ...edgeErrors];
-  if (errors.length > 0) return res.status(400).json({ errors });
+  if (errors.length > 0) return { errors };
+  return {
+    errors,
+    input: { name: name as string, description: description as string | undefined, nodes, edges },
+  };
+}
 
-  const workflow = await createWorkflow({ name, description, nodes, edges });
+workflowsRouter.post("/workflows", async (req, res) => {
+  const { errors, input } = validateWorkflowBody(req.body);
+  if (errors.length > 0 || !input) return res.status(400).json({ errors });
+
+  const workflow = await createWorkflow(input);
   res.status(201).json(workflow);
+});
+
+workflowsRouter.put("/workflows/:id", async (req, res) => {
+  const { errors, input } = validateWorkflowBody(req.body);
+  if (errors.length > 0 || !input) return res.status(400).json({ errors });
+
+  const workflow = await updateWorkflow(req.params.id, input);
+  if (!workflow) return res.status(404).json({ error: "workflow not found" });
+  res.json(workflow);
 });
 
 workflowsRouter.get("/workflows", async (_req, res) => {
@@ -96,4 +116,10 @@ workflowsRouter.get("/workflows/:id/runs", async (req, res) => {
   if (!graph) return res.status(404).json({ error: "workflow not found" });
 
   res.json(await listRunsForWorkflow(req.params.id));
+});
+
+workflowsRouter.delete("/workflows/:id", async (req, res) => {
+  const deleted = await deleteWorkflow(req.params.id);
+  if (!deleted) return res.status(404).json({ error: "workflow not found" });
+  res.status(204).send();
 });
