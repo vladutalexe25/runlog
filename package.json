@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx --env-file=.env src/api/server.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/api/server.js",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
