@@ -17,6 +17,7 @@
     "cors": "^2.8.6",
     "drizzle-orm": "^0.45.2",
     "express": "^5.2.1",
+    "jsep": "^1.4.0",
     "postgres": "^3.4.9"
   },
   "devDependencies": {

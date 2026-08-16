@@ -152,8 +152,13 @@ what keeps it a pure function and keeps the tests fast and deterministic.
 for the first four live in `executors.ts`; each is a factory that takes its
 I/O dependency (`fetch`, `sleep`) as a parameter so it can be faked in tests.
 `transform`/`condition` evaluate a JS expression from `config.expression`
-against `{ input, context }` — fine for a trusted, single-user tool, and
-flagged here because it would not be fine for anything multi-tenant.
+against `{ input, context }` — via a restricted expression grammar
+(`safeExpression.ts`, parsed with `jsep`), **not** `eval`/`new Function`.
+Only property access on `input`/`context`, literals, arithmetic,
+comparisons, `&&`/`||`/`??`, ternaries, and arrays are supported; there is
+no function-call evaluation at all, so `process`, `fetch`, `import()`, etc.
+are structurally unreachable — not blocklisted, just never resolvable.
+See "Protecting transform/condition expressions" in `DECISIONS.md`.
 `llm` only has its provider interface defined (`LLMProvider`) — Ollama and
 hosted-API implementations are Phase 6 work.
 

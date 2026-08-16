@@ -1,5 +1,6 @@
 import type { NodeExecutor, NodeExecutorArgs } from "./types.js";
 import { checkUrlAllowed, parseAllowlist } from "./urlAllowlist.js";
+import { evaluateExpression } from "./safeExpression.js";
 
 /**
  * Built-in executors for the 5 supported node types. Each is a factory so
@@ -38,12 +39,6 @@ export function createHttpRequestExecutor(fetchImpl: FetchLike = fetch, allowedD
 
     return { status: response.status, body: parsed };
   };
-}
-
-function evaluateExpression(expression: string, input: unknown, context: unknown): unknown {
-  // eslint-disable-next-line no-new-func
-  const fn = new Function("input", "context", `return (${expression});`);
-  return fn(input, context);
 }
 
 export const transformExecutor: NodeExecutor = async ({ config, input, context }) => {
