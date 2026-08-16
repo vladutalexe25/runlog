@@ -1,0 +1,19 @@
+# Never let secrets into the build context — .env holds real credentials
+# and this file is what stands between it and a COPY . . layer.
+.env
+.env.local
+web/.env
+web/.env.local
+DECISIONS.md
+
+node_modules
+web/node_modules
+dist
+web/dist
+
+.git
+coverage
+test-results
+playwright-report
+blob-report
+*.log
