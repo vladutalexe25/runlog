@@ -4,6 +4,7 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "noEmit": false,
+    "rootDir": "./src",
     "outDir": "dist"
   },
   "include": ["src"]
