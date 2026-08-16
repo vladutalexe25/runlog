@@ -1,4 +1,5 @@
-export type NodeType = "http_request" | "transform" | "condition" | "delay" | "llm";
+export const NODE_TYPES = ["http_request", "transform", "condition", "delay", "llm"] as const;
+export type NodeType = (typeof NODE_TYPES)[number];
 
 export interface RetryConfig {
   maxAttempts: number;

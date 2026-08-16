@@ -1,0 +1,97 @@
+{
+  "info": {
+    "name": "Webhook Automation Runner",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+    "description": "Phase 2 REST API smoke test: create a branching workflow, trigger it via webhook, inspect the persisted run. Run the requests in order (top to bottom) — each one saves an id the next one needs."
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:4000" },
+    { "key": "workflowId", "value": "" },
+    { "key": "runId", "value": "" }
+  ],
+  "item": [
+    {
+      "name": "1. Health check",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/health"
+      }
+    },
+    {
+      "name": "2. Create workflow (branching)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const body = pm.response.json();",
+              "pm.collectionVariables.set('workflowId', body.id);",
+              "pm.test('created', () => pm.response.to.have.status(201));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{baseUrl}}/workflows",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"name\": \"score classifier\",\n  \"description\": \"classifies a score as high or low\",\n  \"nodes\": [\n    { \"id\": \"extract\", \"type\": \"transform\", \"name\": \"Extract\", \"config\": { \"expression\": \"input.score\" } },\n    { \"id\": \"cond\", \"type\": \"condition\", \"name\": \"High?\", \"config\": { \"expression\": \"context.extract >= 0.5\" } },\n    { \"id\": \"high\", \"type\": \"transform\", \"name\": \"High\", \"config\": { \"expression\": \"'high'\" } },\n    { \"id\": \"low\", \"type\": \"transform\", \"name\": \"Low\", \"config\": { \"expression\": \"'low'\" } }\n  ],\n  \"edges\": [\n    { \"id\": \"e1\", \"source\": \"extract\", \"target\": \"cond\" },\n    { \"id\": \"e2\", \"source\": \"cond\", \"target\": \"high\", \"branch\": \"true\" },\n    { \"id\": \"e3\", \"source\": \"cond\", \"target\": \"low\", \"branch\": \"false\" }\n  ]\n}"
+        }
+      }
+    },
+    {
+      "name": "3. List workflows",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/workflows"
+      }
+    },
+    {
+      "name": "4. Get workflow",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/workflows/{{workflowId}}"
+      }
+    },
+    {
+      "name": "5. Trigger via webhook (score 0.8 -> should take the high branch)",
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "exec": [
+              "const body = pm.response.json();",
+              "pm.collectionVariables.set('runId', body.runId);",
+              "pm.test('enqueued', () => pm.response.to.have.status(202));"
+            ]
+          }
+        }
+      ],
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{baseUrl}}/webhooks/{{workflowId}}",
+        "body": {
+          "mode": "raw",
+          "raw": "{ \"score\": 0.8 }"
+        }
+      }
+    },
+    {
+      "name": "6. Get run result (wait ~1-2s after step 5 first)",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/runs/{{runId}}"
+      }
+    },
+    {
+      "name": "7. List runs for workflow",
+      "request": {
+        "method": "GET",
+        "url": "{{baseUrl}}/workflows/{{workflowId}}/runs"
+      }
+    }
+  ]
+}
