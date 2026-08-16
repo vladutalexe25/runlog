@@ -14,6 +14,7 @@ import {
   type CreateWorkflowInput,
   type CreateWorkflowNodeInput,
 } from "../../db/repository.js";
+import { logger } from "../../logger.js";
 
 export const workflowsRouter = Router();
 
@@ -115,6 +116,7 @@ workflowsRouter.post("/workflows/:id/trigger", async (req, res) => {
   if (!graph) return res.status(404).json({ error: "workflow not found" });
 
   const run = await enqueueRun(req.params.id, "manual", req.body ?? {});
+  logger.info("run enqueued", { runId: run.id, workflowId: req.params.id, triggerType: "manual" });
   res.status(202).json(run);
 });
 

@@ -4,16 +4,19 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx --env-file=.env src/api/server.ts",
-    "build": "tsc -p tsconfig.build.json && npm --prefix web install && npm --prefix web run build",
-    "start": "node dist/api/server.js",
+    "dev": "tsx --import ./src/instrument.ts --env-file=.env src/api/server.ts",
+    "build": "tsc -p tsconfig.build.json && npm --prefix web ci && npm --prefix web run build",
+    "start": "node --import ./dist/instrument.js dist/api/server.js",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit",
+    "lint": "oxlint",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push"
   },
   "dependencies": {
+    "@sentry/node": "^10.70.0",
     "cors": "^2.8.6",
     "drizzle-orm": "^0.45.2",
     "express": "^5.2.1",
@@ -21,10 +24,12 @@
     "postgres": "^3.4.9"
   },
   "devDependencies": {
+    "@playwright/test": "^1.62.1",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/node": "^22.10.2",
     "drizzle-kit": "^0.31.10",
+    "oxlint": "^1.78.0",
     "tsx": "^4.23.12",
     "typescript": "^5.7.2",
     "vitest": "^4.1.10"

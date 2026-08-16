@@ -8,3 +8,9 @@ services:
     envVars:
       - key: DATABASE_URL
         sync: false
+      - key: ALLOWED_HTTP_DOMAINS
+        value: jsonplaceholder.typicode.com
+      - key: SENTRY_DSN
+        sync: false
+      - key: VITE_SENTRY_DSN
+        sync: false

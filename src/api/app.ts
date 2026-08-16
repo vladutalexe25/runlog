@@ -3,9 +3,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import express, { type ErrorRequestHandler } from "express";
 import cors from "cors";
+import * as Sentry from "@sentry/node";
 import { workflowsRouter } from "./routes/workflows.js";
 import { runsRouter } from "./routes/runs.js";
 import { webhooksRouter } from "./routes/webhooks.js";
+import { logger } from "../logger.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 // This file compiles to dist/api/app.js; the frontend build lands at web/dist.
@@ -39,8 +41,19 @@ export function createApp() {
     });
   }
 
-  const onError: ErrorRequestHandler = (err, _req, res, _next) => {
-    console.error(err);
+  // Registered after routes, before the JSON error handler below, per
+  // Sentry's Express integration contract — a no-op if SENTRY_DSN isn't set.
+  if (process.env.SENTRY_DSN) {
+    Sentry.setupExpressErrorHandler(app);
+  }
+
+  const onError: ErrorRequestHandler = (err, req, res, _next) => {
+    logger.error("unhandled request error", {
+      method: req.method,
+      path: req.path,
+      error: err instanceof Error ? err.message : String(err),
+      stack: err instanceof Error ? err.stack : undefined,
+    });
     res.status(500).json({ error: err instanceof Error ? err.message : "internal error" });
   };
   app.use(onError);

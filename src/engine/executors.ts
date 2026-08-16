@@ -75,7 +75,7 @@ export interface LLMProvider {
 }
 
 export function createLLMExecutor(provider: LLMProvider): NodeExecutor {
-  return async ({ config, input, context }) => {
+  return async ({ config, input, context: _context }) => {
     const template = config.prompt;
     if (typeof template !== "string" || template.length === 0) {
       throw new Error("llm node requires config.prompt");

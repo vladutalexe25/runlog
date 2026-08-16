@@ -4,35 +4,48 @@ A self-hostable tool that runs small automations — triggered by a webhook or a
 schedule — with a visual editor and a run history that tells you exactly what
 happened.
 
-## Status: Phase 3 — editor and run history UI
+## Status: Phase 4 — production hardening
 
-Phases 1 (engine + schema) and 2 (REST API + persistence) are done and
-untouched by Phase 3. Phase 3 adds a React + TypeScript frontend (`web/`)
-with a React Flow canvas: build a workflow visually, save it, trigger it,
-and watch a run complete with per-node status colored directly on the
-canvas — the failure case is the point (see below).
+Phases 1–3 (engine, REST API, editor UI) are done and untouched by Phase 4.
+Phase 4 adds what makes this look like a real service instead of a demo:
+structured logging with a `run_id` traceable end-to-end, Sentry wired into
+both frontend and backend with run failures reported as their own events,
+Playwright covering the two critical paths, and CI running lint/typecheck/
+unit tests/E2E on every PR.
 
 ```
-src/                   Backend — unchanged shape from Phase 2, routes now under /api
+src/                   Backend — unchanged shape from Phase 3, routes under /api
+  instrument.ts        Sentry.init — imported first in server.ts, no-op without SENTRY_DSN
+  logger.ts             Structured (JSON) logger — every run-related line carries runId
   db/
     schema.ts        Drizzle schema: workflows, nodes, edges, runs, node_executions
     client.ts         Postgres connection (drizzle-orm/postgres-js), reads DATABASE_URL
-    repository.ts      All queries, incl. updateWorkflow (full replace) added in Phase 3
-  engine/              Unchanged from Phase 1 — see below
+    repository.ts      All queries, incl. clearRunHistory (Phase 3)
+  engine/              Unchanged from Phase 1, plus:
+    urlAllowlist.ts     http_request domain allowlist (SSRF/open-relay protection)
+    safeExpression.ts    transform/condition evaluator — restricted grammar, not eval
   api/
-    app.ts             Express app: cors, JSON body parsing, routes, static frontend + SPA fallback, error handler
-    server.ts           Entrypoint: starts the HTTP server and the job loop
+    app.ts             Express app: cors, JSON body parsing, routes, static frontend + SPA fallback,
+                         Sentry's Express error handler, structured error logging
+    server.ts           Entrypoint: stdout blocking fix, starts HTTP server + job loop,
+                          fails loudly (not silently orphaned) if the port can't bind
     routes/
-      workflows.ts       /api/workflows: create/list/get/update, trigger, list runs
+      workflows.ts       /api/workflows: create/list/get/update/delete, trigger, list/clear runs
       runs.ts             /api/runs/:id
       webhooks.ts         /webhooks/:workflowId — unprefixed, handed to external services
   jobs/
-    processor.ts        claimNextPendingRun + executeWorkflow + persist, on a poll loop
+    processor.ts        claimNextPendingRun + executeWorkflow + persist; structured logs and
+                          a Sentry event per run failure, tagged with runId/workflowId
 tests/
-  plan.test.ts / engine.test.ts / executors.test.ts   (Phase 1, DB-free)
+  plan.test.ts / engine.test.ts / executors.test.ts / urlAllowlist.test.ts /
+  safeExpression.test.ts   (Phase 1–4, DB-free)
+e2e/
+  create-and-run.spec.ts    Build a workflow in the editor, run it, see the result
+  webhook-trigger.spec.ts    POST a webhook URL, confirm a completed run
 
 web/                   Frontend — React + TypeScript + Vite + React Flow
   src/
+    sentry.ts             Sentry.init — imported first in main.tsx, no-op without VITE_SENTRY_DSN
     api.ts               Typed fetch wrapper for the backend's /api/* routes
     types.ts              Shared shapes matching the backend's JSON responses
     App.tsx                Routes: /, /workflows/new, /workflows/:id/edit, /workflows/:id
@@ -40,17 +53,38 @@ web/                   Frontend — React + TypeScript + Vite + React Flow
     pages/
       WorkflowListPage.tsx    Lists workflows, links to detail/new
       WorkflowEditorPage.tsx  Canvas: add/configure/connect nodes, save (create or update)
-      WorkflowDetailPage.tsx  Read-only canvas colored by a selected run, run history,
-                                per-node input/output/error inspector, "Run now"
+      WorkflowDetailPage.tsx  Read-only canvas colored by a selected run, scrollable run
+                                history with "Clear history", per-node inspector, "Run now"
+
+.github/workflows/ci.yml   lint, typecheck, unit tests, and E2E (with a real Postgres
+                             service container) as separate jobs on every PR
 ```
 
 ### Running the tests
 
 ```
 npm install
-npm test        # 42 Vitest tests, no database required
+npm test        # 73 Vitest tests, no database required
 npm run typecheck
+npm run lint
 ```
+
+### Running the E2E tests
+
+Needs a real Postgres (schema pushed) and a full build — these exercise the
+actual production shape (`npm start`, one process, no `tsx`), not the dev
+servers.
+
+```
+npm run db:push
+npm run build
+npm run test:e2e
+```
+
+Playwright's own bundled Chromium download is blocked on some networks; if
+so, point it at a local Chrome/Chromium install instead:
+`PLAYWRIGHT_CHROME_PATH="/path/to/chrome" npm run test:e2e`. Unset in CI,
+where `npx playwright install --with-deps chromium` handles it.
 
 ### Running in development
 
@@ -198,18 +232,44 @@ select this repo) reads it and configures the build/start commands and a
 
 - **Build command:** `npm install && npm run build`
 - **Start command:** `npm start`
-- **Env var:** `DATABASE_URL` — the Neon connection string, same as local `.env`
+- **Env vars:** `DATABASE_URL` (Neon connection string), `ALLOWED_HTTP_DOMAINS`,
+  `SENTRY_DSN` (backend project), `VITE_SENTRY_DSN` (frontend project — must
+  be set at **build** time since Vite embeds it into the bundle; Render sets
+  env vars for the build step too, not just runtime, so this just works)
 
 One service, one URL — the frontend is static files served by the same
 Express process (see "Frontend deployed as static files..." in
 `DECISIONS.md` for why), so there's no separate frontend deploy or
 `VITE_API_URL` to configure.
 
+### Observability
+
+Two independent things, both optional (everything works without either
+configured — see `DECISIONS.md` for why that matters for CI/local dev):
+
+- **Structured logging** (`src/logger.ts`) — every run-related log line is a
+  JSON object carrying `runId` (and `workflowId`), from `"run enqueued"` at
+  trigger time through `"run claimed"`, to `"run succeeded"` / `"run
+  failed"`. `grep`ing (or a log platform querying) for one `runId` gets that
+  run's whole lifecycle, in order, across the HTTP layer and the job loop —
+  the two things that touch a run are different code paths, so this doesn't
+  happen for free.
+- **Sentry** (`src/instrument.ts` backend, `web/src/sentry.ts` frontend) —
+  catches uncaught exceptions and React render errors automatically once a
+  DSN is set. More specifically for this app: a **run failing** — whether
+  from a node throwing or the processor itself crashing — is reported as
+  its own Sentry event via an explicit `captureException`, tagged with
+  `runId`/`workflowId`, not left to whatever automatic instrumentation
+  happens to catch. That's what the phase's acceptance bar actually needs:
+  finding a broken run from Sentry alone, without reading application code.
+
 ### Deliberately not built yet
 
 - No GraphQL — Phase 2 shipped REST; GraphQL is layered on top of the same
   `/api` handlers once it's needed (see `project.MD`).
-- No structured logging, no Sentry, no CI — Phase 4.
 - No real LLM provider implementations — Phase 6.
 - No workflow versioning — `PUT /api/workflows/:id` is a full replace, no
   history of prior versions.
+- No authentication on the API — flagged repeatedly in `DECISIONS.md` as the
+  more fundamental fix behind both the `http_request` allowlist and the
+  expression sandbox; not solved by either.

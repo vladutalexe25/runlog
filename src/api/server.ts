@@ -1,3 +1,8 @@
+// Sentry is loaded via `node --import` (see the "dev"/"start" scripts in
+// package.json), not a regular import here — for ESM, that's what lets its
+// auto-instrumentation (e.g. Express) patch modules before they're
+// resolved. A plain top-level import here runs too late for that; it would
+// still call Sentry.init() successfully, just without full auto-instrumentation.
 import { createApp } from "./app.js";
 import { startJobLoop } from "../jobs/processor.js";
 
