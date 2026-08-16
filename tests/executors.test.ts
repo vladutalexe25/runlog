@@ -131,6 +131,58 @@ describe("createHttpRequestExecutor", () => {
     await executor({ config: { url: "https://api.example.com/x" }, input: null, context: {} });
     expect(fetchImpl).toHaveBeenCalled();
   });
+
+  describe("redirects", () => {
+    it("follows a redirect to a host that is also allowlisted", async () => {
+      const fetchImpl = vi
+        .fn()
+        .mockResolvedValueOnce(
+          new Response(null, { status: 302, headers: { location: "https://api.example.com/target" } }),
+        )
+        .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true }), { status: 200 }));
+      const executor = createHttpRequestExecutor(fetchImpl as unknown as typeof fetch, [
+        "example.com",
+        "api.example.com",
+      ]);
+      const output = await executor({ config: { url: "https://example.com/start" }, input: null, context: {} });
+      expect(output).toEqual({ status: 200, body: { ok: true } });
+      expect(fetchImpl).toHaveBeenCalledTimes(2);
+      expect(fetchImpl).toHaveBeenNthCalledWith(1, "https://example.com/start", expect.objectContaining({ redirect: "manual" }));
+      expect(fetchImpl).toHaveBeenNthCalledWith(2, "https://api.example.com/target", expect.objectContaining({ redirect: "manual" }));
+    });
+
+    it("blocks a redirect to a host that is not allowlisted — the actual SSRF-via-redirect vector", async () => {
+      const fetchImpl = vi.fn().mockResolvedValue(
+        new Response(null, { status: 302, headers: { location: "http://169.254.169.254/latest/meta-data/" } }),
+      );
+      const executor = createHttpRequestExecutor(fetchImpl as unknown as typeof fetch, ["example.com"]);
+      await expect(
+        executor({ config: { url: "https://example.com/start" }, input: null, context: {} }),
+      ).rejects.toThrow(/blocked on redirect/);
+      // Only the first hop happened — the redirect target was never fetched.
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    });
+
+    it("resolves a relative redirect Location against the current URL before checking it", async () => {
+      const fetchImpl = vi
+        .fn()
+        .mockResolvedValueOnce(new Response(null, { status: 302, headers: { location: "/elsewhere" } }))
+        .mockResolvedValueOnce(new Response("{}", { status: 200 }));
+      const executor = createHttpRequestExecutor(fetchImpl as unknown as typeof fetch, ["example.com"]);
+      await executor({ config: { url: "https://example.com/start" }, input: null, context: {} });
+      expect(fetchImpl).toHaveBeenNthCalledWith(2, "https://example.com/elsewhere", expect.anything());
+    });
+
+    it("gives up after too many redirects instead of looping forever", async () => {
+      const fetchImpl = vi
+        .fn()
+        .mockResolvedValue(new Response(null, { status: 302, headers: { location: "https://example.com/loop" } }));
+      const executor = createHttpRequestExecutor(fetchImpl as unknown as typeof fetch, ["example.com"]);
+      await expect(
+        executor({ config: { url: "https://example.com/start" }, input: null, context: {} }),
+      ).rejects.toThrow(/exceeded.*redirects/);
+    });
+  });
 });
 
 describe("createLLMExecutor", () => {

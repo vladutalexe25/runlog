@@ -10,6 +10,42 @@ import { evaluateExpression } from "./safeExpression.js";
 
 type FetchLike = typeof fetch;
 
+const MAX_REDIRECTS = 5;
+
+/**
+ * fetch()'s default `redirect: "follow"` checks the allowlist on the
+ * initial URL only — a redirect (from an allowlisted host, an open
+ * redirector, anything) to an internal address or a cloud metadata
+ * endpoint would be followed silently, bypassing the allowlist entirely
+ * after the first hop. `redirect: "manual"` is Node-specific behavior
+ * (unlike a browser, there's no cross-origin "opaque redirect" — the
+ * Location header is fully readable server-side), so each hop can be
+ * re-checked against the same allowlist before being followed.
+ */
+async function fetchWithAllowlist(
+  fetchImpl: FetchLike,
+  url: string,
+  init: RequestInit,
+  allowedDomains: string[],
+): Promise<Response> {
+  let currentUrl = url;
+  for (let hop = 0; hop <= MAX_REDIRECTS; hop++) {
+    const response = await fetchImpl(currentUrl, { ...init, redirect: "manual" });
+    if (response.status < 300 || response.status >= 400) return response;
+
+    const location = response.headers.get("location");
+    if (!location) return response;
+
+    const nextUrl = new URL(location, currentUrl).toString();
+    const allowlistError = checkUrlAllowed(nextUrl, allowedDomains);
+    if (allowlistError) {
+      throw new Error(`http_request blocked on redirect to ${nextUrl}: ${allowlistError}`);
+    }
+    currentUrl = nextUrl;
+  }
+  throw new Error(`http_request exceeded ${MAX_REDIRECTS} redirects`);
+}
+
 export function createHttpRequestExecutor(fetchImpl: FetchLike = fetch, allowedDomains: string[] = []): NodeExecutor {
   return async ({ config }: NodeExecutorArgs) => {
     const url = config.url;
@@ -24,7 +60,7 @@ export function createHttpRequestExecutor(fetchImpl: FetchLike = fetch, allowedD
     const headers = (config.headers as Record<string, string> | undefined) ?? undefined;
     const body = config.body !== undefined ? JSON.stringify(config.body) : undefined;
 
-    const response = await fetchImpl(url, { method, headers, body });
+    const response = await fetchWithAllowlist(fetchImpl, url, { method, headers, body }, allowedDomains);
     const text = await response.text();
     let parsed: unknown = text;
     try {

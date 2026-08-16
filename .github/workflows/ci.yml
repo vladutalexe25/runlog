@@ -5,6 +5,12 @@ on:
   push:
     branches: [main]
 
+# None of these jobs need to write anything back to the repo (no auto-commit,
+# no PR comments) — least privilege regardless of the repo's default token
+# permissions.
+permissions:
+  contents: read
+
 jobs:
   lint:
     runs-on: ubuntu-latest

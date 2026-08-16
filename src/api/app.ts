@@ -54,7 +54,23 @@ export function createApp() {
       error: err instanceof Error ? err.message : String(err),
       stack: err instanceof Error ? err.stack : undefined,
     });
-    res.status(500).json({ error: err instanceof Error ? err.message : "internal error" });
+
+    // A 4xx here (oversized body, malformed JSON) is the client's own doing
+    // and body-parser's messages for those are already generic/safe —
+    // reflect the real status and message. Anything else defaults to 500
+    // with a fixed message: full detail goes to logs/Sentry above, never to
+    // the client — an *unexpected* error here (unlike routes' own
+    // deliberate 400/404s) can be a raw DB error, e.g. exposing query/
+    // column/table names, and there's no auth on this API to gate who sees it.
+    const rawStatus = (err as { status?: unknown; statusCode?: unknown })?.status ??
+      (err as { statusCode?: unknown })?.statusCode;
+    const status = typeof rawStatus === "number" && rawStatus >= 400 && rawStatus < 500 ? rawStatus : 500;
+
+    if (status !== 500) {
+      res.status(status).json({ error: err instanceof Error ? err.message : "bad request" });
+      return;
+    }
+    res.status(500).json({ error: "internal error" });
   };
   app.use(onError);
 
